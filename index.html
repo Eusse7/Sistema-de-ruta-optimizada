@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Optimizador de Rutas — Medellín</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@600;800&display=swap" rel="stylesheet"/>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:     #f5f4f0;
+      --panel:  #ffffff;
+      --border: #e2e0da;
+      --ink:    #1a1a1a;
+      --muted:  #888880;
+      --r1:     #d4380d;
+      --r2:     #0958d9;
+      --r3:     #389e0d;
+      --mono:   'Space Mono', monospace;
+      --head:   'Syne', sans-serif;
+      --radius: 5px;
+    }
+
+    html, body { height: 100%; background: var(--bg); color: var(--ink); font-family: var(--mono); }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      grid-template-rows: 52px 1fr;
+      height: 100vh;
+    }
+
+    header {
+      grid-column: 1 / -1;
+      display: flex; align-items: center; gap: 12px;
+      padding: 0 20px;
+      background: var(--ink); color: #fff;
+    }
+    .logo { font-family: var(--head); font-size: 15px; font-weight: 800; letter-spacing: .04em; }
+    .logo em { color: #d4380d; font-style: normal; }
+    .header-tag {
+      font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
+      color: #888; border: 1px solid #333; padding: 2px 8px; border-radius: 2px;
+    }
+    .city-tag { margin-left: auto; font-size: 10px; color: #ccc; display: flex; align-items: center; gap: 5px; }
+    .city-dot { width: 6px; height: 6px; border-radius: 50%; background: #389e0d; }
+
+    aside {
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .panel-scroll {
+      flex: 1; overflow-y: auto; padding: 16px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+
+    .section-title {
+      font-size: 9px; font-weight: 700; letter-spacing: .18em;
+      text-transform: uppercase; color: var(--muted);
+      margin-bottom: 8px; padding-bottom: 5px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    label { font-size: 10px; color: var(--muted); display: block; margin-bottom: 4px; }
+
+    select {
+      width: 100%; font-family: var(--mono); font-size: 11px;
+      background: var(--bg); color: var(--ink);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 8px 10px; cursor: pointer; outline: none; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23888880' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 10px center;
+    }
+    select:focus { border-color: var(--r1); }
+
+    .add-row { display: flex; gap: 6px; margin-bottom: 10px; }
+    .add-row select { flex: 1; width: auto; }
+
+    #destinos-lista { display: flex; flex-direction: column; gap: 5px; min-height: 30px; }
+    .chip {
+      display: flex; align-items: center; gap: 7px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 6px 9px; font-size: 11px;
+    }
+    .chip-num {
+      width: 17px; height: 17px; border-radius: 50%;
+      background: var(--r1); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 700; flex-shrink: 0;
+    }
+    .chip-name { flex: 1; }
+    .chip-del { cursor: pointer; color: var(--muted); font-size: 15px; transition: color .15s; }
+    .chip-del:hover { color: var(--r1); }
+    .empty-hint { font-size: 11px; color: var(--muted); font-style: italic; padding: 4px 0; }
+
+    .btn {
+      font-family: var(--mono); font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .06em;
+      border: none; border-radius: var(--radius);
+      padding: 9px 14px; cursor: pointer;
+      transition: opacity .15s, transform .1s;
+    }
+    .btn:active { transform: scale(.98); }
+    .btn:disabled { opacity: .35; cursor: not-allowed; }
+    .btn-primary { background: var(--r1); color: #fff; width: 100%; }
+    .btn-primary:hover:not(:disabled) { opacity: .88; }
+    .btn-icon {
+      background: var(--bg); border: 1px solid var(--border);
+      color: var(--ink); padding: 8px 12px; flex-shrink: 0;
+    }
+    .btn-icon:hover { background: var(--border); }
+
+    #resultados { display: flex; flex-direction: column; gap: 8px; }
+
+    .estado {
+      font-size: 11px; padding: 10px 12px; border-radius: var(--radius);
+      text-align: center; line-height: 1.5;
+    }
+    .estado.info   { color: var(--muted); border: 1px dashed var(--border); }
+    .estado.error  { color: var(--r1); border: 1px solid #ffd8bf; background: #fff7f0; }
+    .estado.loading{ color: var(--r2); border: 1px solid #d6e4ff; background: #f0f5ff; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block; width: 11px; height: 11px;
+      border: 2px solid #d6e4ff; border-top-color: var(--r2);
+      border-radius: 50%; animation: spin .7s linear infinite;
+      vertical-align: middle; margin-right: 5px;
+    }
+
+    .ruta-card {
+      border: 1.5px solid var(--border); border-radius: var(--radius);
+      padding: 10px 12px; cursor: pointer;
+      transition: border-color .15s, box-shadow .15s;
+      position: relative;
+    }
+    .ruta-card::before {
+      content: ''; position: absolute;
+      left: 0; top: 0; bottom: 0; width: 3px;
+      border-radius: var(--radius) 0 0 var(--radius);
+    }
+    .ruta-card.r1::before { background: var(--r1); }
+    .ruta-card.r2::before { background: var(--r2); }
+    .ruta-card.r3::before { background: var(--r3); }
+    .ruta-card:hover { border-color: #bbb; }
+    .ruta-card.active { border-color: var(--ink); box-shadow: 0 1px 6px rgba(0,0,0,.1); }
+
+    .ruta-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+    .ruta-rank { font-family: var(--head); font-size: 19px; font-weight: 800; line-height: 1; }
+    .r1 .ruta-rank { color: var(--r1); }
+    .r2 .ruta-rank { color: var(--r2); }
+    .r3 .ruta-rank { color: var(--r3); }
+    .ruta-meta { flex: 1; }
+    .ruta-costo { font-size: 12px; font-weight: 700; }
+    .ruta-sub { font-size: 9px; color: var(--muted); margin-top: 1px; }
+    .ruta-path {
+      font-size: 10px; color: var(--muted);
+      border-top: 1px solid var(--border);
+      padding-top: 6px; margin-top: 4px; line-height: 1.8;
+    }
+    .nodo-dest { color: var(--r1); font-weight: 700; }
+    .nodo-orig { color: var(--r3); font-weight: 700; }
+
+    .stats-row { display: flex; gap: 8px; }
+    .stat {
+      flex: 1; text-align: center;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 8px 6px;
+    }
+    .stat-val { font-family: var(--head); font-size: 17px; font-weight: 800; color: var(--r1); }
+    .stat-lbl { font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; }
+
+    hr { border: none; border-top: 1px solid var(--border); }
+
+    #map { width: 100%; height: 100%; }
+
+    /* Mapa blanco — CartoDB Positron ya es blanco por defecto */
+
+    .leaflet-popup-content-wrapper {
+      font-family: var(--mono); font-size: 11px;
+      border-radius: var(--radius);
+      box-shadow: 0 2px 10px rgba(0,0,0,.12);
+    }
+    .leaflet-popup-content { margin: 10px 14px; }
+    .popup-name { font-family: var(--head); font-size: 13px; font-weight: 800; }
+    .popup-tag { font-size: 9px; color: var(--muted); margin-top: 2px; }
+
+    .map-legend {
+      position: absolute; bottom: 14px; right: 14px; z-index: 999;
+      background: rgba(255,255,255,.96);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 10px 14px; font-family: var(--mono); font-size: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.08);
+    }
+    .leg-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+    .leg-row:last-child { margin-bottom: 0; }
+    .leg-line { width: 24px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+
+    .map-overlay {
+      position: absolute; inset: 0; z-index: 998;
+      background: rgba(255,255,255,.7);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--mono); font-size: 12px; color: var(--r2);
+      backdrop-filter: blur(2px); pointer-events: none;
+    }
+    .map-overlay.hidden { display: none; }
+
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  </style>
+</head>
+<body>
+
+<div class="shell">
+
+  <header>
+    <div class="logo">Route<em>OPT</em></div>
+    <span class="header-tag">Dijkstra · Yen · OSRM</span>
+    <span class="city-tag"><span class="city-dot"></span>Medellín, Colombia</span>
+  </header>
+
+  <aside>
+    <div class="panel-scroll">
+
+      <div>
+        <div class="section-title">Punto de origen</div>
+        <label for="sel-origen">Nodo de salida</label>
+        <select id="sel-origen" onchange="actualizarBtn()">
+          <option value="">— selecciona —</option>
+        </select>
+      </div>
+
+      <hr/>
+
+      <div>
+        <div class="section-title">Puntos de entrega</div>
+        <div class="add-row">
+          <select id="sel-destino"><option value="">— selecciona —</option></select>
+          <button class="btn btn-icon" onclick="agregarDestino()">＋</button>
+        </div>
+        <div id="destinos-lista">
+          <span class="empty-hint">Sin destinos añadidos</span>
+        </div>
+      </div>
+
+      <hr/>
+
+      <button class="btn btn-primary" id="btn-calcular" onclick="calcular()" disabled>
+        ▶ Calcular rutas óptimas
+      </button>
+
+      <div class="stats-row" id="stats-bar" style="display:none;">
+        <div class="stat">
+          <div class="stat-val" id="stat-rutas">—</div>
+          <div class="stat-lbl">Rutas</div>
+        </div>
+        <div class="stat">
+          <div class="stat-val" id="stat-mejor">—</div>
+          <div class="stat-lbl">Mejor (min)</div>
+        </div>
+        <div class="stat">
+          <div class="stat-val" id="stat-dist">—</div>
+          <div class="stat-lbl">Km ruta 1</div>
+        </div>
+      </div>
+
+      <hr/>
+
+      <div>
+        <div class="section-title">Rutas encontradas</div>
+        <div id="resultados">
+          <div class="estado info">Elige un origen y al menos un punto de entrega.</div>
+        </div>
+      </div>
+
+    </div>
+  </aside>
+
+  <div style="position:relative;">
+    <div id="map"></div>
+    <div class="map-legend">
+      <div class="leg-row"><div class="leg-line" style="background:var(--r1);"></div> Ruta #1 — óptima</div>
+      <div class="leg-row"><div class="leg-line" style="background:var(--r2);"></div> Ruta #2</div>
+      <div class="leg-row"><div class="leg-line" style="background:var(--r3);"></div> Ruta #3</div>
+    </div>
+    <div class="map-overlay hidden" id="map-overlay">
+      <span class="spinner"></span>&nbsp;Trazando rutas sobre calles reales…
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+//  ESTADO
+// ═══════════════════════════════════════════════════
+let nodos      = {};
+let aristas    = [];
+let destinos   = [];
+let rutasData  = [];   // {costo, nodos[]} — resultado del backend Python
+let rutasMapa  = [];   // {coords, distancia, duracion} — geometría OSRM
+let rutaActiva = 0;
+
+const COLORES = ["#d4380d", "#0958d9", "#389e0d"];
+const CLASES  = ["r1", "r2", "r3"];
+
+// ═══════════════════════════════════════════════════
+//  MAPA — CartoDB Positron (mapa blanco)
+// ═══════════════════════════════════════════════════
+const map = L.map("map", { zoomControl: true })
+             .setView([6.2442, -75.5812], 12);
+
+L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/">CARTO</a>',
+  subdomains: "abcd",
+  maxZoom: 19,
+}).addTo(map);
+
+const capaGrafo  = L.layerGroup().addTo(map);
+const capaRutas  = L.layerGroup().addTo(map);
+const capaMarcas = L.layerGroup().addTo(map);
+
+// ═══════════════════════════════════════════════════
+//  INICIO
+// ═══════════════════════════════════════════════════
+async function init() {
+  const [rN, rA] = await Promise.all([
+    fetch("/api/nodos").then(r => r.json()),
+    fetch("/api/aristas").then(r => r.json()),
+  ]);
+  nodos   = rN;
+  aristas = rA;
+  poblarSelects();
+  dibujarGrafoBase();
+}
+
+function poblarSelects() {
+  const opts = Object.entries(nodos)
+    .map(([id, d]) => `<option value="${id}">${d.nombre}</option>`)
+    .join("");
+  const base = `<option value="">— selecciona —</option>` + opts;
+  document.getElementById("sel-origen").innerHTML  = base;
+  document.getElementById("sel-destino").innerHTML = base;
+}
+
+// ═══════════════════════════════════════════════════
+//  GRAFO BASE (conexiones del modelo)
+// ═══════════════════════════════════════════════════
+function dibujarGrafoBase() {
+  capaGrafo.clearLayers();
+  capaMarcas.clearLayers();
+
+  aristas.forEach(a => {
+    const u = nodos[a.u], v = nodos[a.v];
+    L.polyline([[u.lat, u.lon], [v.lat, v.lon]], {
+      color: "#c8c5bd", weight: 1.2, opacity: 0.6, dashArray: "3 4"
+    }).addTo(capaGrafo)
+     .bindPopup(`<div class="popup-name">${u.nombre} ↔ ${v.nombre}</div>
+                 <div class="popup-tag">Peso: ${a.peso} min</div>`);
+  });
+
+  Object.entries(nodos).forEach(([id, d]) => {
+    L.circleMarker([d.lat, d.lon], {
+      radius: 5, fillColor: "#fff", color: "#aaa", weight: 1.5, fillOpacity: 1
+    }).addTo(capaMarcas)
+     .bindPopup(`<div class="popup-name">${d.nombre}</div><div class="popup-tag">Nodo ${id}</div>`);
+  });
+}
+
+// ═══════════════════════════════════════════════════
+//  DESTINOS
+// ═══════════════════════════════════════════════════
+function agregarDestino() {
+  const sel = document.getElementById("sel-destino");
+  const id  = sel.value;
+  if (!id) return;
+  if (destinos.includes(id)) { sel.value = ""; return; }
+  if (id === document.getElementById("sel-origen").value) {
+    alert("El destino no puede ser igual al origen."); return;
+  }
+  destinos.push(id);
+  sel.value = "";
+  renderizarChips();
+  actualizarBtn();
+}
+
+function eliminarDestino(idx) {
+  destinos.splice(idx, 1);
+  renderizarChips();
+  actualizarBtn();
+}
+
+function renderizarChips() {
+  const el = document.getElementById("destinos-lista");
+  if (!destinos.length) {
+    el.innerHTML = `<span class="empty-hint">Sin destinos añadidos</span>`; return;
+  }
+  el.innerHTML = destinos.map((id, i) => `
+    <div class="chip">
+      <div class="chip-num">${i+1}</div>
+      <div class="chip-name">${nodos[id].nombre}</div>
+      <div class="chip-del" onclick="eliminarDestino(${i})">×</div>
+    </div>`).join("");
+}
+
+function actualizarBtn() {
+  document.getElementById("btn-calcular").disabled =
+    !(document.getElementById("sel-origen").value && destinos.length);
+}
+
+// ═══════════════════════════════════════════════════
+//  CALCULAR — backend Python (Dijkstra + Yen)
+// ═══════════════════════════════════════════════════
+async function calcular() {
+  const origen = document.getElementById("sel-origen").value;
+  if (!origen || !destinos.length) return;
+
+  setEstado("loading", `<span class="spinner"></span>Calculando con Dijkstra + Yen…`);
+  document.getElementById("stats-bar").style.display = "none";
+  document.getElementById("map-overlay").classList.remove("hidden");
+  capaRutas.clearLayers();
+
+  try {
+    // Paso 1: backend Python calcula las rutas sobre el grafo
+    const res  = await fetch("/api/calcular", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ origen, destinos }),
+    });
+    const data = await res.json();
+
+    if (!res.ok || data.error) {
+      setEstado("error", data.error || "Error del servidor");
+      document.getElementById("map-overlay").classList.add("hidden");
+      return;
+    }
+
+    rutasData = data.rutas;
+
+    // Paso 2: OSRM traza cada ruta siguiendo calles reales
+    // Este fetch lo hace el NAVEGADOR directamente (no pasa por Python)
+    rutasMapa = await Promise.all(rutasData.map(r => trazarEnCalles(r.nodos)));
+
+    renderizarTarjetas();
+    dibujarEnMapa();
+    actualizarStats();
+
+  } catch (e) {
+    setEstado("error", "Error de conexión. ¿El servidor está activo?");
+    console.error(e);
+  } finally {
+    document.getElementById("map-overlay").classList.add("hidden");
+  }
+}
+
+// ═══════════════════════════════════════════════════
+//  OSRM — trazado sobre calles reales de Medellín
+//  Llamado directo desde el navegador del usuario
+// ═══════════════════════════════════════════════════
+async function trazarEnCalles(nodosRuta) {
+  // OSRM espera: lon,lat;lon,lat;...
+  const coords = nodosRuta.map(n => `${n.lon},${n.lat}`).join(";");
+  const url = `https://router.project-osrm.org/route/v1/driving/${coords}`
+            + `?overview=full&geometries=geojson`;
+
+  try {
+    const r = await fetch(url);
+    const d = await r.json();
+    if (d.code === "Ok" && d.routes.length > 0) {
+      return {
+        coords:    d.routes[0].geometry.coordinates.map(c => [c[1], c[0]]), // [lat,lon]
+        distancia: d.routes[0].distance,   // metros
+        duracion:  d.routes[0].duration,   // segundos
+        usaOSRM:   true,
+      };
+    }
+  } catch (e) {
+    console.warn("OSRM no respondió, usando línea recta:", e);
+  }
+
+  // Fallback: línea recta entre los nodos del grafo
+  return {
+    coords:    nodosRuta.map(n => [n.lat, n.lon]),
+    distancia: null,
+    duracion:  null,
+    usaOSRM:   false,
+  };
+}
+
+// ═══════════════════════════════════════════════════
+//  RENDER TARJETAS
+// ═══════════════════════════════════════════════════
+function renderizarTarjetas() {
+  if (!rutasData.length) { setEstado("error", "No se encontraron rutas."); return; }
+
+  document.getElementById("resultados").innerHTML = rutasData.map((r, i) => {
+    const geo = rutasMapa[i];
+    const km  = geo?.distancia ? (geo.distancia / 1000).toFixed(1) + " km" : "";
+    const dur = geo?.duracion  ? Math.ceil(geo.duracion / 60) + " min reales" : "";
+
+    const path = r.nodos.map((n, j) => {
+      const cls = j === 0 ? "nodo-orig" : destinos.includes(n.id) ? "nodo-dest" : "";
+      return `<span class="${cls}">${n.nombre}</span>`;
+    }).join(" → ");
+
+    return `
+      <div class="ruta-card ${CLASES[i]}" id="card-${i}" onclick="seleccionarRuta(${i})">
+        <div class="ruta-head">
+          <div class="ruta-rank">#${i+1}</div>
+          <div class="ruta-meta">
+            <div class="ruta-costo">⏱ ${r.costo} min${dur ? "  ·  " + dur : ""}</div>
+            <div class="ruta-sub">${r.nodos.length} nodos${km ? "  ·  " + km : ""}${geo?.usaOSRM ? "" : " · (línea directa)"}</div>
+          </div>
+        </div>
+        <div class="ruta-path">${path}</div>
+      </div>`;
+  }).join("");
+
+  seleccionarRuta(0);
+}
+
+function seleccionarRuta(idx) {
+  rutaActiva = idx;
+  document.querySelectorAll(".ruta-card").forEach((c, i) => c.classList.toggle("active", i === idx));
+  dibujarEnMapa();
+}
+
+// ═══════════════════════════════════════════════════
+//  DIBUJO EN MAPA
+// ═══════════════════════════════════════════════════
+function dibujarEnMapa() {
+  capaRutas.clearLayers();
+  capaMarcas.clearLayers();
+
+  // Nodos base
+  Object.entries(nodos).forEach(([id, d]) => {
+    L.circleMarker([d.lat, d.lon], {
+      radius: 4, fillColor: "#fff", color: "#bbb", weight: 1.2, fillOpacity: 1
+    }).addTo(capaMarcas)
+     .bindPopup(`<div class="popup-name">${d.nombre}</div><div class="popup-tag">Nodo ${id}</div>`);
+  });
+
+  if (!rutasMapa.length) return;
+
+  // Líneas de ruta (la activa más gruesa y sólida)
+  rutasMapa.forEach((geo, i) => {
+    if (!geo.coords.length) return;
+    const activa = i === rutaActiva;
+    L.polyline(geo.coords, {
+      color:     COLORES[i],
+      weight:    activa ? 5 : 2.5,
+      opacity:   activa ? 0.92 : 0.28,
+      dashArray: i === 0 ? null : i === 1 ? "10 6" : "5 5",
+      lineJoin:  "round",
+      lineCap:   "round",
+    }).addTo(capaRutas);
+  });
+
+  // Marcadores en la ruta activa
+  const ruta  = rutasData[rutaActiva];
+  const color = COLORES[rutaActiva];
+
+  ruta.nodos.forEach((n, j) => {
+    const esOrigen  = j === 0;
+    const esDestino = destinos.includes(n.id);
+    const size      = esOrigen || esDestino ? 12 : 7;
+    const bg        = esOrigen ? "#389e0d" : esDestino ? color : "#aaa";
+    const label     = esOrigen ? "🟢 Origen" : esDestino ? "📦 Entrega" : "Intermedio";
+
+    const icon = L.divIcon({
+      className: "",
+      html: `<div style="
+        width:${size}px; height:${size}px; border-radius:50%;
+        background:${bg}; border:2.5px solid #fff;
+        box-shadow:0 1px 5px rgba(0,0,0,.2);
+      "></div>`,
+      iconSize:   [size, size],
+      iconAnchor: [size/2, size/2],
+    });
+
+    L.marker([n.lat, n.lon], { icon })
+     .addTo(capaRutas)
+     .bindPopup(`<div class="popup-name">${n.nombre}</div><div class="popup-tag">${label}</div>`);
+  });
+
+  // Ajustar vista al trazado OSRM de la ruta activa
+  const coords = rutasMapa[rutaActiva]?.coords;
+  if (coords?.length) map.fitBounds(coords, { padding: [50, 50] });
+}
+
+// ═══════════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════════
+function setEstado(tipo, html) {
+  document.getElementById("resultados").innerHTML =
+    `<div class="estado ${tipo}">${html}</div>`;
+}
+
+function actualizarStats() {
+  document.getElementById("stats-bar").style.display = "flex";
+  document.getElementById("stat-rutas").textContent  = rutasData.length;
+  document.getElementById("stat-mejor").textContent  = rutasData[0]?.costo ?? "—";
+  const km = rutasMapa[0]?.distancia;
+  document.getElementById("stat-dist").textContent   = km ? (km / 1000).toFixed(1) : "—";
+}
+
+init();
+</script>
+</body>
+</html>

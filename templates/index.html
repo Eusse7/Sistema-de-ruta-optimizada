@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Optimizador de Rutas — Delivery</title>
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet"/>
+
+  <style>
+    /* ── RESET & VARIABLES ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0f14;
+      --panel:     #13161e;
+      --border:    #232736;
+      --accent:    #f0a500;
+      --accent2:   #e05c2a;
+      --text:      #e8eaf0;
+      --muted:     #6b7080;
+      --success:   #2dd4a0;
+      --r1:        #f0a500;
+      --r2:        #e05c2a;
+      --r3:        #6b7fe0;
+      --font-head: 'Syne', sans-serif;
+      --font-mono: 'Space Mono', monospace;
+      --radius:    6px;
+    }
+
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-mono); }
+
+    /* ── LAYOUT ── */
+    .shell {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      grid-template-rows: 56px 1fr;
+      height: 100vh;
+    }
+
+    /* ── HEADER ── */
+    header {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 24px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+    }
+    .logo-mark {
+      width: 32px; height: 32px;
+      background: var(--accent);
+      clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; color: #000; font-weight: 700;
+    }
+    header h1 {
+      font-family: var(--font-head);
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    header h1 span { color: var(--accent); }
+    .badge {
+      margin-left: auto;
+      font-size: 9px;
+      letter-spacing: 0.15em;
+      color: var(--muted);
+      text-transform: uppercase;
+      border: 1px solid var(--border);
+      padding: 3px 8px;
+      border-radius: 2px;
+    }
+
+    /* ── SIDEBAR ── */
+    aside {
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .section-label {
+      font-size: 9px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    /* ── FORM ELEMENTS ── */
+    label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 5px; }
+
+    select, .btn {
+      width: 100%;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      border-radius: var(--radius);
+      outline: none;
+    }
+
+    select {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 9px 12px;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7080' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+    }
+    select:focus { border-color: var(--accent); }
+
+    /* ── DESTINO CHIPS ── */
+    #destinos-lista {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-height: 36px;
+    }
+
+    .chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 7px 10px;
+      font-size: 11px;
+    }
+    .chip .num {
+      width: 18px; height: 18px;
+      background: var(--accent);
+      color: #000;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 700; flex-shrink: 0;
+    }
+    .chip .name { flex: 1; }
+    .chip .del {
+      cursor: pointer; color: var(--muted); font-size: 14px; line-height: 1;
+      transition: color .15s;
+    }
+    .chip .del:hover { color: var(--accent2); }
+
+    .empty-hint {
+      font-size: 11px; color: var(--muted); font-style: italic;
+      padding: 6px 0;
+    }
+
+    /* ── BUTTONS ── */
+    .btn {
+      padding: 10px;
+      cursor: pointer;
+      border: none;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      transition: opacity .15s, transform .1s;
+    }
+    .btn:active { transform: scale(.98); }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    .btn-secondary {
+      background: var(--bg);
+      color: var(--accent);
+      border: 1px solid var(--accent);
+    }
+    .btn-secondary:hover:not(:disabled) { background: rgba(240,165,0,.08); }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #000;
+    }
+    .btn-primary:hover:not(:disabled) { opacity: .88; }
+
+    .btn-sm {
+      width: auto;
+      padding: 6px 12px;
+      font-size: 10px;
+    }
+
+    /* ── RESULTADOS ── */
+    #resultados { display: flex; flex-direction: column; gap: 10px; }
+
+    .ruta-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      cursor: pointer;
+      transition: border-color .2s, transform .15s;
+      position: relative;
+      overflow: hidden;
+    }
+    .ruta-card::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 3px;
+    }
+    .ruta-card.r1::before { background: var(--r1); }
+    .ruta-card.r2::before { background: var(--r2); }
+    .ruta-card.r3::before { background: var(--r3); }
+    .ruta-card:hover { transform: translateX(2px); }
+    .ruta-card.active { border-color: var(--accent); }
+
+    .ruta-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .ruta-rank {
+      font-family: var(--font-head);
+      font-size: 22px;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .r1 .ruta-rank { color: var(--r1); }
+    .r2 .ruta-rank { color: var(--r2); }
+    .r3 .ruta-rank { color: var(--r3); }
+
+    .ruta-info { flex: 1; }
+    .ruta-costo {
+      font-size: 13px; font-weight: 700;
+    }
+    .ruta-paradas {
+      font-size: 10px; color: var(--muted);
+    }
+
+    .ruta-path {
+      font-size: 10px;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      padding-top: 8px;
+      line-height: 1.7;
+      word-break: break-word;
+    }
+    .ruta-path .nodo-dest {
+      color: var(--success);
+      font-weight: 700;
+    }
+
+    /* ── ESTADO / ERROR ── */
+    .estado {
+      font-size: 11px;
+      padding: 10px;
+      border-radius: var(--radius);
+      text-align: center;
+    }
+    .estado.info { color: var(--muted); border: 1px dashed var(--border); }
+    .estado.error { color: #ff6b6b; border: 1px solid #ff6b6b33; background: #ff6b6b0d; }
+    .estado.loading { color: var(--accent); border: 1px solid var(--accent)44; }
+
+    /* spinner */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block;
+      width: 12px; height: 12px;
+      border: 2px solid var(--accent)44;
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+
+    /* ── MAPA ── */
+    #map {
+      width: 100%; height: 100%;
+      z-index: 0;
+    }
+
+    /* Leaflet overrides */
+    .leaflet-container { background: #0d0f14 !important; }
+    .leaflet-tile { filter: brightness(.55) saturate(.4) hue-rotate(180deg); }
+
+    /* Custom popup */
+    .leaflet-popup-content-wrapper {
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+    .leaflet-popup-tip { background: var(--panel); }
+
+    /* ── LEYENDA MAPA ── */
+    .map-legend {
+      position: absolute;
+      bottom: 16px;
+      right: 16px;
+      z-index: 999;
+      background: var(--panel)ee;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      font-size: 10px;
+    }
+    .map-legend div { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .map-legend div:last-child { margin-bottom: 0; }
+    .leg-line {
+      width: 24px; height: 3px; border-radius: 2px;
+    }
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── DIVIDER ── */
+    hr { border: none; border-top: 1px solid var(--border); }
+
+    /* ── STATS BAR ── */
+    .stats-bar {
+      display: flex;
+      gap: 12px;
+    }
+    .stat {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 10px;
+      text-align: center;
+    }
+    .stat-val {
+      font-family: var(--font-head);
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--accent);
+    }
+    .stat-lbl { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; }
+  </style>
+</head>
+<body>
+
+<div class="shell">
+  <!-- HEADER -->
+  <header>
+    <div class="logo-mark">▲</div>
+    <h1>Route<span>OPT</span></h1>
+    <span class="badge">Algoritmo de Yen · Dijkstra</span>
+  </header>
+
+  <!-- SIDEBAR -->
+  <aside>
+
+    <!-- ORIGEN -->
+    <div>
+      <div class="section-label">// Punto de origen</div>
+      <label for="sel-origen">Seleccionar nodo de salida</label>
+      <select id="sel-origen">
+        <option value="">— elige un nodo —</option>
+      </select>
+    </div>
+
+    <hr/>
+
+    <!-- DESTINOS -->
+    <div>
+      <div class="section-label">// Puntos de entrega</div>
+      <label for="sel-destino">Agregar destino</label>
+      <div style="display:flex;gap:6px;margin-bottom:10px;">
+        <select id="sel-destino" style="flex:1;width:auto;">
+          <option value="">— elige un nodo —</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" onclick="agregarDestino()">＋</button>
+      </div>
+      <div id="destinos-lista">
+        <span class="empty-hint">Sin destinos añadidos</span>
+      </div>
+    </div>
+
+    <hr/>
+
+    <!-- ACCIÓN -->
+    <button class="btn btn-primary" id="btn-calcular" onclick="calcular()" disabled>
+      Calcular rutas óptimas
+    </button>
+
+    <!-- STATS -->
+    <div class="stats-bar" id="stats-bar" style="display:none;">
+      <div class="stat">
+        <div class="stat-val" id="stat-rutas">0</div>
+        <div class="stat-lbl">Rutas</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val" id="stat-mejor">—</div>
+        <div class="stat-lbl">Mejor costo</div>
+      </div>
+      <div class="stat">
+        <div class="stat-val" id="stat-nodos">0</div>
+        <div class="stat-lbl">Nodos</div>
+      </div>
+    </div>
+
+    <hr/>
+
+    <!-- RESULTADOS -->
+    <div>
+      <div class="section-label">// Rutas encontradas</div>
+      <div id="resultados">
+        <div class="estado info">Configura origen y destinos para calcular rutas.</div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- MAPA -->
+  <div style="position:relative;">
+    <div id="map"></div>
+
+    <!-- Leyenda -->
+    <div class="map-legend">
+      <div><div class="leg-line" style="background:var(--r1);"></div> Ruta #1 (óptima)</div>
+      <div><div class="leg-line" style="background:var(--r2);"></div> Ruta #2</div>
+      <div><div class="leg-line" style="background:var(--r3);"></div> Ruta #3</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  ESTADO GLOBAL
+// ─────────────────────────────────────────────
+let nodos = {};
+let aristas = [];
+let destinos = [];
+let rutasActuales = [];
+let capaActiva = null;
+
+const COLORES_RUTA = ["#f0a500", "#e05c2a", "#6b7fe0"];
+const COLORES_RUTA_OPAC = ["#f0a50066", "#e05c2a66", "#6b7fe066"];
+
+// ─────────────────────────────────────────────
+//  MAPA LEAFLET
+// ─────────────────────────────────────────────
+const map = L.map("map", { zoomControl: true }).setView([4.614, -74.08], 13);
+
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "© OSM",
+  maxZoom: 18,
+}).addTo(map);
+
+// Capas
+const capaGrafo   = L.layerGroup().addTo(map);
+const capaRutas   = L.layerGroup().addTo(map);
+const capaNodos   = L.layerGroup().addTo(map);
+
+// ─────────────────────────────────────────────
+//  INICIALIZACIÓN
+// ─────────────────────────────────────────────
+async function init() {
+  const [rNodos, rAristas] = await Promise.all([
+    fetch("/api/nodos").then(r => r.json()),
+    fetch("/api/aristas").then(r => r.json()),
+  ]);
+
+  nodos = rNodos;
+  aristas = rAristas;
+
+  poblarSelects();
+  dibujarGrafoBase();
+}
+
+function poblarSelects() {
+  const opts = Object.entries(nodos)
+    .map(([id, d]) => `<option value="${id}">${d.nombre}</option>`)
+    .join("");
+
+  document.getElementById("sel-origen").innerHTML =
+    `<option value="">— elige un nodo —</option>` + opts;
+  document.getElementById("sel-destino").innerHTML =
+    `<option value="">— elige un nodo —</option>` + opts;
+}
+
+function dibujarGrafoBase() {
+  capaGrafo.clearLayers();
+  capaNodos.clearLayers();
+
+  // Aristas del grafo base (gris tenue)
+  aristas.forEach(a => {
+    const u = nodos[a.u], v = nodos[a.v];
+    L.polyline([[u.lat, u.lon], [v.lat, v.lon]], {
+      color: "#232736", weight: 1.5, opacity: 0.9
+    }).addTo(capaGrafo)
+     .bindPopup(`<b>${u.nombre} → ${v.nombre}</b><br>Peso: ${a.peso}`);
+  });
+
+  // Nodos
+  Object.entries(nodos).forEach(([id, d]) => {
+    const marker = L.circleMarker([d.lat, d.lon], {
+      radius: 6,
+      fillColor: "#232736",
+      color: "#6b7080",
+      weight: 1.5,
+      fillOpacity: 1,
+    }).addTo(capaNodos)
+      .bindPopup(`<b>${d.nombre}</b><br><span style="color:#6b7080">${id}</span>`);
+
+    marker.on("click", () => {
+      const sel = document.getElementById("sel-destino");
+      sel.value = id;
+    });
+  });
+}
+
+// ─────────────────────────────────────────────
+//  GESTIÓN DE DESTINOS
+// ─────────────────────────────────────────────
+function agregarDestino() {
+  const sel = document.getElementById("sel-destino");
+  const id = sel.value;
+  if (!id) return;
+  if (destinos.includes(id)) return;
+  if (id === document.getElementById("sel-origen").value) {
+    alert("El destino no puede ser igual al origen.");
+    return;
+  }
+  destinos.push(id);
+  renderizarDestinos();
+  actualizarBtn();
+  sel.value = "";
+}
+
+function eliminarDestino(idx) {
+  destinos.splice(idx, 1);
+  renderizarDestinos();
+  actualizarBtn();
+}
+
+function renderizarDestinos() {
+  const el = document.getElementById("destinos-lista");
+  if (!destinos.length) {
+    el.innerHTML = `<span class="empty-hint">Sin destinos añadidos</span>`;
+    return;
+  }
+  el.innerHTML = destinos.map((id, i) => `
+    <div class="chip">
+      <div class="num">${i + 1}</div>
+      <div class="name">${nodos[id].nombre}</div>
+      <div class="del" onclick="eliminarDestino(${i})">×</div>
+    </div>
+  `).join("");
+}
+
+function actualizarBtn() {
+  const origen = document.getElementById("sel-origen").value;
+  document.getElementById("btn-calcular").disabled = !(origen && destinos.length);
+}
+
+document.getElementById("sel-origen").addEventListener("change", actualizarBtn);
+
+// ─────────────────────────────────────────────
+//  CALCULAR
+// ─────────────────────────────────────────────
+async function calcular() {
+  const origen = document.getElementById("sel-origen").value;
+  if (!origen || !destinos.length) return;
+
+  setEstado("loading", `<span class="spinner"></span> Ejecutando Dijkstra + Yen...`);
+  document.getElementById("stats-bar").style.display = "none";
+
+  try {
+    const res = await fetch("/api/calcular", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ origen, destinos }),
+    });
+
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      setEstado("error", data.error || "Error inesperado");
+      return;
+    }
+
+    rutasActuales = data.rutas;
+    renderizarRutas(origen);
+    dibujarRutasEnMapa(origen);
+    actualizarStats();
+
+  } catch (e) {
+    setEstado("error", "Error de conexión con el servidor.");
+  }
+}
+
+function setEstado(tipo, html) {
+  document.getElementById("resultados").innerHTML =
+    `<div class="estado ${tipo}">${html}</div>`;
+}
+
+// ─────────────────────────────────────────────
+//  RENDERIZADO DE RESULTADOS
+// ─────────────────────────────────────────────
+const LABELS = ["#1", "#2", "#3"];
+const CLASES = ["r1", "r2", "r3"];
+
+function renderizarRutas(origen) {
+  if (!rutasActuales.length) {
+    setEstado("error", "No se encontraron rutas.");
+    return;
+  }
+
+  document.getElementById("resultados").innerHTML = rutasActuales.map((r, i) => {
+    const path = r.nodos.map((n, j) => {
+      const isDestino = destinos.includes(n.id);
+      return `<span class="${isDestino ? 'nodo-dest' : ''}">${n.nombre}</span>`;
+    }).join(" → ");
+
+    return `
+      <div class="ruta-card ${CLASES[i]}" onclick="seleccionarRuta(${i})" id="card-${i}">
+        <div class="ruta-head">
+          <div class="ruta-rank">${LABELS[i]}</div>
+          <div class="ruta-info">
+            <div class="ruta-costo">⏱ Costo: ${r.costo} min</div>
+            <div class="ruta-paradas">${r.nodos.length} nodos · ${r.nodos.length - 1} tramos</div>
+          </div>
+        </div>
+        <div class="ruta-path">${path}</div>
+      </div>
+    `;
+  }).join("");
+
+  seleccionarRuta(0);
+}
+
+function seleccionarRuta(idx) {
+  document.querySelectorAll(".ruta-card").forEach((c, i) => {
+    c.classList.toggle("active", i === idx);
+  });
+  capaActiva = idx;
+  dibujarRutasEnMapa();
+}
+
+function actualizarStats() {
+  document.getElementById("stats-bar").style.display = "flex";
+  document.getElementById("stat-rutas").textContent = rutasActuales.length;
+  document.getElementById("stat-mejor").textContent = rutasActuales[0]?.costo ?? "—";
+  document.getElementById("stat-nodos").textContent = rutasActuales[0]?.nodos.length ?? "—";
+}
+
+// ─────────────────────────────────────────────
+//  DIBUJO EN MAPA
+// ─────────────────────────────────────────────
+function dibujarRutasEnMapa() {
+  capaRutas.clearLayers();
+  capaNodos.clearLayers();
+
+  // Redibujar nodos base
+  Object.entries(nodos).forEach(([id, d]) => {
+    L.circleMarker([d.lat, d.lon], {
+      radius: 5, fillColor: "#232736",
+      color: "#6b7080", weight: 1.5, fillOpacity: 1,
+    }).addTo(capaNodos)
+      .bindPopup(`<b>${d.nombre}</b>`);
+  });
+
+  // Dibujar rutas (la activa más gruesa)
+  rutasActuales.forEach((r, i) => {
+    const activa = (capaActiva === null || capaActiva === i);
+    const coords = r.nodos.map(n => [n.lat, n.lon]);
+
+    L.polyline(coords, {
+      color: COLORES_RUTA[i],
+      weight: activa ? 5 : 2,
+      opacity: activa ? 0.95 : 0.25,
+      dashArray: i === 0 ? null : (i === 1 ? "8 4" : "4 4"),
+    }).addTo(capaRutas);
+  });
+
+  // Resaltar nodos de la ruta activa
+  const rActiva = rutasActuales[capaActiva ?? 0];
+  if (!rActiva) return;
+
+  const origen = rActiva.nodos[0];
+  rActiva.nodos.forEach((n, j) => {
+    const esOrigen = j === 0;
+    const esDestino = destinos.includes(n.id);
+
+    L.circleMarker([n.lat, n.lon], {
+      radius: esOrigen || esDestino ? 9 : 6,
+      fillColor: esOrigen ? "#2dd4a0" : esDestino ? COLORES_RUTA[capaActiva ?? 0] : "#4a5060",
+      color: "#fff",
+      weight: 2,
+      fillOpacity: 1,
+    }).addTo(capaRutas)
+      .bindPopup(`<b>${n.nombre}</b>${esOrigen ? " 🟢 Origen" : esDestino ? " 📦 Entrega" : ""}`);
+  });
+
+  // Centrar mapa
+  const bounds = rActiva.nodos.map(n => [n.lat, n.lon]);
+  if (bounds.length) map.fitBounds(bounds, { padding: [40, 40] });
+}
+
+// ─────────────────────────────────────────────
+//  ARRANQUE
+// ─────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

@@ -161,6 +161,7 @@ def yen_k_caminos(grafo, origen, destino, k=3):
 
                 entrada = {"costo": round(costo_total, 2), "camino": camino_total}
                 # Evitar duplicados
+                # En B los elementos son tuplas (costo, id, entrada), por eso usamos c[2]
                 if not any(c[2]["camino"] == camino_total for c in B) and \
                    not any(c["camino"] == camino_total for c in A):
                     heapq.heappush(B, (costo_total, id(entrada), entrada))
@@ -264,34 +265,153 @@ def get_aristas():
     return jsonify(aristas)
 
 
+# ─────────────────────────────────────────────
+#  TSP — orden óptimo de visita (fuerza bruta
+#  para n ≤ 8, greedy para más)
+# ─────────────────────────────────────────────
+
+def construir_matriz_costos(origen, destinos):
+    """
+    Calcula el costo mínimo (Dijkstra) entre todos los pares relevantes.
+    Retorna dict (u,v) -> (costo, camino).
+    """
+    paradas = [origen] + destinos
+    matriz  = {}
+    for u in paradas:
+        dist, prev = dijkstra(CIUDAD, u)
+        for v in paradas:
+            if u != v:
+                camino = reconstruir_camino(prev, u, v)
+                matriz[(u, v)] = (dist[v], camino)
+    return matriz
+
+
+def tsp_fuerza_bruta(origen, destinos, matriz):
+    """
+    Prueba todas las permutaciones de destinos y devuelve el orden
+    con menor costo total. Viable hasta ~8 destinos (8! = 40320).
+    """
+    from itertools import permutations
+    mejor_costo  = math.inf
+    mejor_orden  = None
+
+    for perm in permutations(destinos):
+        paradas = [origen] + list(perm)
+        costo   = sum(matriz[(paradas[i], paradas[i+1])][0]
+                      for i in range(len(paradas)-1))
+        if costo < mejor_costo:
+            mejor_costo = costo
+            mejor_orden = list(perm)
+
+    return mejor_orden, mejor_costo
+
+
+def tsp_greedy(origen, destinos, matriz):
+    """
+    Heurística del vecino más cercano para n > 8 destinos.
+    """
+    no_visitados = list(destinos)
+    orden        = []
+    actual       = origen
+
+    while no_visitados:
+        siguiente = min(no_visitados, key=lambda v: matriz[(actual, v)][0])
+        orden.append(siguiente)
+        no_visitados.remove(siguiente)
+        actual = siguiente
+
+    costo = sum(matriz[([origen]+orden)[i], ([origen]+orden)[i+1]][0]
+                for i in range(len(orden)))
+    return orden, costo
+
+
+def ensamblar_camino(origen, orden, matriz):
+    """
+    Une los tramos Dijkstra para construir el camino completo
+    en el orden TSP dado, sin repetir nodos de entrega ya visitados.
+    """
+    paradas      = [origen] + orden
+    camino_total = [paradas[0]]
+    costo_total  = 0
+
+    for i in range(len(paradas) - 1):
+        _, tramo = matriz[(paradas[i], paradas[i+1])]
+        costo_total += matriz[(paradas[i], paradas[i+1])][0]
+        camino_total += tramo[1:]   # evita duplicar el nodo de unión
+
+    return {"costo": round(costo_total, 2), "camino": camino_total}
+
+
 @app.route("/api/calcular", methods=["POST"])
 def calcular():
-    data = request.get_json()
-    origen = data.get("origen")
+    data     = request.get_json()
+    origen   = data.get("origen")
     destinos = data.get("destinos", [])
 
     if not origen or not destinos:
         return jsonify({"error": "Se requiere origen y al menos un destino"}), 400
-
     if origen not in CIUDAD.nodos:
         return jsonify({"error": f"Nodo origen '{origen}' no existe"}), 400
-
     for d in destinos:
         if d not in CIUDAD.nodos:
             return jsonify({"error": f"Nodo destino '{d}' no existe"}), 400
 
-    # Si hay múltiples destinos, calculamos ruta origen -> d1 -> d2 -> ...
-    # usando Dijkstra entre cada par y luego Yen para el tramo completo
+    # ── Caso 1 destino: Yen directo ──
     if len(destinos) == 1:
         rutas = yen_k_caminos(CIUDAD, origen, destinos[0], k=3)
+        if not rutas:
+            return jsonify({"error": "No se encontró ruta entre los nodos"}), 404
+        resultado = _serializar(rutas)
+        return jsonify({"rutas": resultado, "orden_optimo": [origen] + destinos})
+
+    # ── Múltiples destinos: TSP primero ──
+    matriz = construir_matriz_costos(origen, destinos)
+
+    # Verificar conectividad
+    for (u, v), (costo, _) in matriz.items():
+        if math.isinf(costo):
+            return jsonify({"error": f"No hay camino entre {u} y {v}"}), 404
+
+    # Elegir algoritmo según cantidad de destinos
+    if len(destinos) <= 8:
+        orden_optimo, _ = tsp_fuerza_bruta(origen, destinos, matriz)
     else:
-        # Ruta multi-parada: encadenamos tramos
-        rutas = calcular_multi_parada(origen, destinos)
+        orden_optimo, _ = tsp_greedy(origen, destinos, matriz)
 
-    if not rutas:
-        return jsonify({"error": "No se encontró ninguna ruta entre los nodos"}), 404
+    # Ruta principal con el orden TSP óptimo
+    ruta_base = ensamblar_camino(origen, orden_optimo, matriz)
 
-    # Serializar con nombres de nodos
+    # Generar 2 variantes adicionales usando Yen en el primer tramo
+    # manteniendo el orden TSP en el resto
+    alternativas = [ruta_base]
+    yen_primer   = yen_k_caminos(CIUDAD, origen, orden_optimo[0], k=4)
+
+    for alt_tramo in yen_primer[1:]:
+        if len(alternativas) >= 3:
+            break
+        # Reemplazar el primer tramo con la alternativa de Yen
+        camino_alt = list(alt_tramo["camino"])
+        costo_alt  = alt_tramo["costo"]
+
+        # Encadenar el resto de paradas en orden TSP
+        for i in range(len(orden_optimo) - 1):
+            c, tramo = matriz[(orden_optimo[i], orden_optimo[i+1])]
+            costo_alt  += c
+            camino_alt += tramo[1:]
+
+        entrada = {"costo": round(costo_alt, 2), "camino": camino_alt}
+        if entrada["camino"] != ruta_base["camino"]:
+            alternativas.append(entrada)
+
+    alternativas = sorted(alternativas, key=lambda x: x["costo"])[:3]
+
+    return jsonify({
+        "rutas":        _serializar(alternativas),
+        "orden_optimo": [origen] + orden_optimo,
+    })
+
+
+def _serializar(rutas):
     resultado = []
     for r in rutas:
         nodos_ruta = [
@@ -300,50 +420,7 @@ def calcular():
             for nid in r["camino"]
         ]
         resultado.append({"costo": r["costo"], "nodos": nodos_ruta})
-
-    return jsonify({"rutas": resultado})
-
-
-def calcular_multi_parada(origen, destinos):
-    """
-    Para múltiples destinos, calcula el camino más corto pasando por todos
-    en el orden indicado, luego genera variantes alternativas.
-    """
-    paradas = [origen] + destinos
-    costo_total = 0
-    camino_total = [paradas[0]]
-
-    for i in range(len(paradas) - 1):
-        dist, prev = dijkstra(CIUDAD, paradas[i])
-        if math.isinf(dist[paradas[i+1]]):
-            return []
-        tramo = reconstruir_camino(prev, paradas[i], paradas[i+1])
-        costo_total += dist[paradas[i+1]]
-        camino_total += tramo[1:]
-
-    ruta_base = {"costo": round(costo_total, 2), "camino": camino_total}
-
-    # Variante 2: camino alternativo en el primer tramo usando Yen
-    alternativas = [ruta_base]
-    yen_primer_tramo = yen_k_caminos(CIUDAD, origen, destinos[0], k=3)
-
-    for alt in yen_primer_tramo[1:]:
-        camino_alt = list(alt["camino"])
-        costo_alt = alt["costo"]
-
-        for i in range(1, len(destinos)):
-            dist, prev = dijkstra(CIUDAD, destinos[i-1])
-            if math.isinf(dist[destinos[i]]):
-                break
-            tramo = reconstruir_camino(prev, destinos[i-1], destinos[i])
-            costo_alt += dist[destinos[i]]
-            camino_alt += tramo[1:]
-
-        alternativas.append({"costo": round(costo_alt, 2), "camino": camino_alt})
-        if len(alternativas) == 3:
-            break
-
-    return sorted(alternativas, key=lambda x: x["costo"])[:3]
+    return resultado
 
 
 if __name__ == "__main__":
